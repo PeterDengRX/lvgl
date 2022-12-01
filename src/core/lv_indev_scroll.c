@@ -64,6 +64,26 @@ void _lv_indev_scroll_handler(_lv_indev_proc_t * proc)
     if(proc->types.pointer.vect.x != 0 || proc->types.pointer.vect.y != 0) {
         lv_coord_t diff_x = 0;
         lv_coord_t diff_y = 0;
+        lv_point_t pivot = { 0, 0 };
+        int16_t angle;
+        int16_t zoom;
+        lv_obj_t * parent; 
+
+        parent = scroll_obj;
+        angle = lv_obj_get_style_transform_angle(scroll_obj, 0);
+        zoom = lv_obj_get_style_transform_zoom(scroll_obj, 0);
+
+        while(parent) {
+          parent = lv_obj_get_parent(parent);
+          angle += lv_obj_get_style_transform_angle(parent, 0);
+          zoom *= (lv_obj_get_style_transform_zoom(parent, 0)/256);
+        }
+
+        if (angle != 0 || zoom != LV_IMG_ZOOM_NONE) {
+          angle = -angle;
+          zoom = (256 * 256) / zoom;
+          lv_point_transform(&proc->types.pointer.vect, angle, zoom, &pivot);
+        }
 
         if(proc->types.pointer.scroll_dir == LV_DIR_HOR) {
             lv_coord_t sr = lv_obj_get_scroll_right(scroll_obj);
@@ -253,6 +273,12 @@ static lv_obj_t * find_scroll_obj(_lv_indev_proc_t * proc)
     lv_dir_t dir_candidate = LV_DIR_NONE;
     lv_indev_t * indev_act = lv_indev_get_act();
     lv_coord_t scroll_limit = indev_act->driver->scroll_limit;
+    lv_point_t cur_scroll_sum;
+    lv_point_t vect;
+    lv_point_t pivot = { 0, 0 };
+    int16_t angle;
+    int16_t zoom;
+    lv_obj_t * parent;
 
     /*Go until find a scrollable object in the current direction
      *More precisely:
@@ -266,7 +292,24 @@ static lv_obj_t * find_scroll_obj(_lv_indev_proc_t * proc)
     /*Decide if it's a horizontal or vertical scroll*/
     bool hor_en = false;
     bool ver_en = false;
-    if(LV_ABS(proc->types.pointer.scroll_sum.x) > LV_ABS(proc->types.pointer.scroll_sum.y)) {
+
+    cur_scroll_sum.x = proc->types.pointer.scroll_sum.x;
+    cur_scroll_sum.y = proc->types.pointer.scroll_sum.y;
+    vect.x = proc->types.pointer.vect.x;
+    vect.y = proc->types.pointer.vect.y;
+    angle = lv_obj_get_style_transform_angle(obj_act, 0);
+    zoom = lv_obj_get_style_transform_zoom(obj_act, 0);
+
+    if (angle != 0 || zoom != LV_IMG_ZOOM_NONE) {
+      angle = -angle;
+      zoom = (256 * 256) / zoom;
+      lv_point_transform(&vect, angle, zoom, &pivot);
+    }
+
+    cur_scroll_sum.x += vect.x;
+    cur_scroll_sum.y += vect.y;
+
+    if(LV_ABS(cur_scroll_sum.x) > LV_ABS(cur_scroll_sum.y)) {
         hor_en = true;
     }
     else {
@@ -281,6 +324,38 @@ static lv_obj_t * find_scroll_obj(_lv_indev_proc_t * proc)
 
             obj_act = lv_obj_get_parent(obj_act);
             continue;
+        }
+
+        parent = obj_act;
+        angle = lv_obj_get_style_transform_angle(obj_act, 0);
+        zoom = lv_obj_get_style_transform_zoom(obj_act, 0);
+        while(parent) {
+            parent = lv_obj_get_parent(parent);
+            angle += lv_obj_get_style_transform_angle(parent, 0);
+            zoom *= (lv_obj_get_style_transform_zoom(parent, 0)/256);
+        }
+
+        if (angle != 0 || zoom != LV_IMG_ZOOM_NONE) {
+            cur_scroll_sum.x = proc->types.pointer.scroll_sum.x;
+            cur_scroll_sum.y = proc->types.pointer.scroll_sum.y;
+            vect.x = proc->types.pointer.vect.x;
+            vect.y = proc->types.pointer.vect.y;
+            angle = -angle;
+            zoom = (256 * 256) / zoom;
+            lv_point_transform(&vect, angle, zoom, &pivot);
+            cur_scroll_sum.x += vect.x;
+            cur_scroll_sum.y += vect.y;
+        }
+        else
+        {
+            cur_scroll_sum.x = proc->types.pointer.vect.x + proc->types.pointer.scroll_sum.x;
+            cur_scroll_sum.y = proc->types.pointer.vect.y + proc->types.pointer.scroll_sum.y;
+        }
+        if(LV_ABS(cur_scroll_sum.x) > LV_ABS(cur_scroll_sum.y)) {
+          hor_en = true;
+        }
+        else {
+          ver_en = true;
         }
 
         /*Consider both up-down or left/right scrollable according to the current direction*/
@@ -348,6 +423,10 @@ static lv_obj_t * find_scroll_obj(_lv_indev_proc_t * proc)
         proc->types.pointer.scroll_obj = obj_candidate;
         proc->types.pointer.scroll_sum.x = 0;
         proc->types.pointer.scroll_sum.y = 0;
+    }
+    else {
+        proc->types.pointer.scroll_sum.x = cur_scroll_sum.x;
+        proc->types.pointer.scroll_sum.y = cur_scroll_sum.y;
     }
 
     return obj_candidate;
